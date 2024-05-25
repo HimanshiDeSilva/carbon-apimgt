@@ -41,6 +41,7 @@ import org.wso2.carbon.apimgt.common.gateway.graphql.QueryValidator;
 import org.wso2.carbon.apimgt.gateway.dto.GraphQLOperationDTO;
 import org.wso2.carbon.apimgt.common.gateway.graphql.GraphQLProcessorUtil;
 import org.wso2.carbon.apimgt.gateway.handlers.WebsocketUtil;
+import org.wso2.carbon.apimgt.gateway.handlers.security.APISecurityException;
 import org.wso2.carbon.apimgt.gateway.handlers.streaming.websocket.WebSocketApiConstants;
 import org.wso2.carbon.apimgt.gateway.handlers.streaming.websocket.WebSocketUtils;
 import org.wso2.carbon.apimgt.gateway.inbound.InboundMessageContext;
@@ -71,13 +72,15 @@ public class GraphQLRequestProcessor extends RequestProcessor {
      */
     @Override
     public InboundProcessorResponseDTO handleRequest(int msgSize, String msgText,
-                                                     InboundMessageContext inboundMessageContext) {
+                                                     InboundMessageContext inboundMessageContext) throws APISecurityException {
         InboundProcessorResponseDTO responseDTO;
         JSONObject graphQLMsg = new JSONObject(msgText);
         // removing the existing resource already set in the channel so that new resource can be extracted and set,
         // so that analytics events will be published against correct resource
         WebSocketUtils.removeApiPropertyFromChannel(inboundMessageContext.getCtx(),
                 APIConstants.API_ELECTED_RESOURCE);
+        WebSocketUtils.setApiPropertyToChannel(inboundMessageContext.getCtx(), APIConstants.API_TYPE,
+                inboundMessageContext.getElectedAPI().getApiType());
         responseDTO = InboundWebsocketProcessorUtil.authenticateToken(inboundMessageContext);
         Parser parser = new Parser();
 
@@ -94,9 +97,11 @@ public class GraphQLRequestProcessor extends RequestProcessor {
                             ((JSONObject) graphQLMsg.get(GraphQLConstants.SubscriptionConstants
                                     .PAYLOAD_FIELD_NAME_PAYLOAD))
                                     .getString(GraphQLConstants.SubscriptionConstants.PAYLOAD_FIELD_NAME_QUERY);
+                    WebSocketUtils.setApiPropertyToChannel(inboundMessageContext.getCtx(), APIConstants.GRAPHQL_PAYLOAD, graphQLSubscriptionPayload);
                     Document document = parser.parseDocument(graphQLSubscriptionPayload);
                     // Extract the operation type and operations from the payload
                     OperationDefinition operation = getOperationFromPayload(document);
+                    WebSocketUtils.setApiPropertyToChannel(inboundMessageContext.getCtx(), APIConstants.GRAPHQL_OPERATION, operation);
                     if (operation != null) {
                         if (checkIfValidSubscribeOperation(operation)) {
                             responseDTO = validateQueryPayload(inboundMessageContext, document, operationId);
@@ -107,6 +112,20 @@ public class GraphQLRequestProcessor extends RequestProcessor {
                                 // set resource name of subscription operation for analytics event publishing
                                 WebSocketUtils.setApiPropertyToChannel(inboundMessageContext.getCtx(),
                                         APIConstants.API_ELECTED_RESOURCE, subscriptionOperation);
+                                WebSocketUtils.setApiPropertyToChannel(inboundMessageContext.getCtx(),
+                                        APIConstants.GRAPHQL_SCHEMA, inboundMessageContext.getGraphQLSchemaDTO().getGraphQLSchema());
+                                WebSocketUtils.setApiPropertyToChannel(inboundMessageContext.getCtx(),
+                                        APIConstants.TYPE_DEFINITION, inboundMessageContext.getGraphQLSchemaDTO().getTypeDefinitionRegistry());
+
+                                try {
+                                    String accessControlInfo = getGraphQLAccessControlInfo(inboundMessageContext
+                                            .getGraphQLSchemaDTO().getGraphQLSchema());
+                                    WebSocketUtils.setApiPropertyToChannel(inboundMessageContext.getCtx(),
+                                            APIConstants.GRAPHQL_ACCESS_CONTROL_POLICY, accessControlInfo);
+                                } catch (APIManagementException e) {
+                                    log.error("Error while getting GraphQL access control info", e);
+                                }
+
                                 // extract verb info dto with throttle policy for matching verb
                                 VerbInfoDTO verbInfoDTO = InboundWebsocketProcessorUtil
                                         .findMatchingVerb(subscriptionOperation, inboundMessageContext);

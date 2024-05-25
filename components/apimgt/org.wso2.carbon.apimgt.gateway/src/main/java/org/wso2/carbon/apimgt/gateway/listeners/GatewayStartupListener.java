@@ -191,12 +191,12 @@ public class GatewayStartupListener extends AbstractAxis2ConfigurationContextObs
                 }
             }).start();
             SubscriptionDataHolder.getInstance().registerTenantSubscriptionStore(MultitenantConstants.SUPER_TENANT_DOMAIN_NAME);
+            try {
+                retrieveAllAPIMetadata();
+            } catch (DataLoadingException e) {
+                log.error("Error while loading All API Metadata", e);
+            }
             if (GatewayUtils.isOnDemandLoading()) {
-                try {
-                    retrieveAllAPIMetadata();
-                } catch (DataLoadingException e) {
-                    log.error("Error while loading All API Metadata", e);
-                }
                 try {
                     new EndpointCertificateDeployer().deployAllCertificatesAtStartup();
                 } catch (APIManagementException e) {
@@ -214,7 +214,8 @@ public class GatewayStartupListener extends AbstractAxis2ConfigurationContextObs
             jmsTransportHandlerForEventHub.subscribeForJmsEvents(APIConstants.TopicNames.TOPIC_CACHE_INVALIDATION,
                     new APIMgtGatewayCacheMessageListener());
             jmsTransportHandlerForEventHub
-                    .subscribeForJmsEvents(APIConstants.TopicNames.TOPIC_NOTIFICATION, new GatewayJMSMessageListener());
+                    .subscribeForJmsEvents(APIConstants.TopicNames.TOPIC_NOTIFICATION,
+                            new GatewayJMSMessageListener(true));
             jmsTransportHandlerForEventHub
                     .subscribeForJmsEvents(APIConstants.TopicNames.TOPIC_THROTTLE_DATA, new JMSMessageListener());
             jmsTransportHandlerForEventHub.subscribeForJmsEvents(APIConstants.TopicNames.TOPIC_ASYNC_WEBHOOKS_DATA,
@@ -456,7 +457,7 @@ public class GatewayStartupListener extends AbstractAxis2ConfigurationContextObs
             KeyTemplateRetriever webServiceBlockConditionsRetriever = new KeyTemplateRetriever();
             webServiceBlockConditionsRetriever.startKeyTemplateDataRetriever();
 
-            // Start web service based revoked JWT tokens retriever.
+            // Start web service based revoke conditions retriever. Retrieve revoked token JTIs, users and client IDs.
             // Advanced throttle properties & blocking conditions have to be enabled for JWT token
             // retrieval due to the throttle config dependency for this feature.
             RevokedJWTTokensRetriever webServiceRevokedJWTTokensRetriever = new RevokedJWTTokensRetriever();
